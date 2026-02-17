@@ -15,6 +15,8 @@ import asyncio
 import json
 import logging
 import os
+import time
+import shutil
 import random
 import re
 import sqlite3
@@ -612,6 +614,125 @@ async def cmd_backup_db(message: Message):
         except Exception:
             pass
 
+
+# =========================
+# ADMIN: DB RESTORE (upload SQLite file)
+# =========================
+def _is_sqlite_file(p: str) -> bool:
+    try:
+        with open(p, "rb") as f:
+            head = f.read(16)
+        return head.startswith(b"SQLite format 3\x00")
+    except Exception:
+        return False
+
+
+def _restore_db_from_path(src_path: str) -> str:
+    """Restore DB from .db or .zip containing a .db. Returns restored db filename."""
+    db_path = os.path.abspath(DB_NAME)
+
+    tmp_db = None
+    cleanup = []
+
+    # If zip: extract first *.db
+    if src_path.lower().endswith(".zip"):
+        with zipfile.ZipFile(src_path, "r") as z:
+            cand = [n for n in z.namelist() if n.lower().endswith(".db")]
+            if not cand:
+                raise ValueError("ZIP ichida .db topilmadi.")
+            name = cand[0]
+            tmp_db = f"/tmp/restore_{int(time.time())}_{os.path.basename(name)}"
+            z.extract(name, "/tmp")
+            extracted = os.path.join("/tmp", name)
+            # zip may contain dirs
+            if os.path.isdir(extracted):
+                raise ValueError("ZIP format noto‘g‘ri.")
+            os.replace(extracted, tmp_db)
+            cleanup.append(tmp_db)
+    else:
+        tmp_db = src_path
+
+    if not _is_sqlite_file(tmp_db):
+        raise ValueError("Bu fayl SQLite DB emas (header mos emas).")
+
+    # Replace atomically
+    new_path = db_path + ".new"
+    shutil.copyfile(tmp_db, new_path)
+    os.replace(new_path, db_path)
+
+    for p in cleanup:
+        try:
+            os.remove(p)
+        except Exception:
+            pass
+    return os.path.basename(db_path)
+
+
+@router.message(Command("restore_db"))
+async def cmd_restore_db(message: Message, state: FSMContext):
+    """Ask admin to upload a .zip/.db to restore."""
+    if not await guard_msg(message, "admins"):
+        return
+    await state.set_state(RestoreState.waiting_file)
+    await message.reply(
+        "♻️ <b>DB Restore</b>\n"
+        "Menga <b>.zip</b> (ichida .db) yoki to‘g‘ridan-to‘g‘ri <b>.db</b> fayl yuboring.\n"
+        "⚠️ Bu amaliyot mavjud bazani <b>butunlay almashtiradi</b>.\n"
+        "Bekor qilish: /cancel"
+    )
+
+
+@router.message(Command("cancel"))
+async def cmd_cancel(message: Message, state: FSMContext):
+    cur = await state.get_state()
+    if cur == RestoreState.waiting_file.state:
+        await state.clear()
+        await message.reply("✅ Bekor qilindi.")
+        return
+
+
+@router.message(RestoreState.waiting_file, F.document)
+async def restore_db_document(message: Message, state: FSMContext):
+    if not await guard_msg(message, "admins"):
+        return
+
+    doc = message.document
+    fname = (doc.file_name or "").lower()
+    if not (fname.endswith(".db") or fname.endswith(".zip")):
+        await message.reply("❌ Faqat .db yoki .zip yuboring.")
+        return
+
+    tmp_path = f"/tmp/upload_{int(time.time())}_{doc.file_unique_id}_{os.path.basename(doc.file_name or 'db.zip')}"
+    try:
+        # aiogram v3 download helper
+        await message.bot.download(doc, destination=tmp_path)
+    except Exception as e:
+        await message.reply(f"❌ Faylni yuklab bo‘lmadi: <code>{escape_html(e)}</code>")
+        return
+
+    try:
+        restored = _restore_db_from_path(tmp_path)
+    except Exception as e:
+        await message.reply(f"❌ Restore xatolik: <code>{escape_html(e)}</code>")
+        try:
+            os.remove(tmp_path)
+        except Exception:
+            pass
+        return
+    finally:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+
+    await state.clear()
+    await message.reply(
+        "✅ <b>DB tiklandi.</b>\n"
+        f"Fayl: <code>{escape_html(restored)}</code>\n"
+        "🔄 Endi hostingda <b>Restart</b> qiling (yoki servisni qayta ishga tushiring), shunda bot yangi DB bilan ishlaydi."
+    )
+
 def ensure_user(uid: int, name: str):
     conn = db()
     row = conn.execute("SELECT 1 FROM users WHERE user_id=?", (uid,)).fetchone()
@@ -658,9 +779,12 @@ class UState(StatesGroup):
     solve_answers = State()
     task_submit = State()
 
+class RestoreState(StatesGroup):
+    waiting_file = State()
+
+
 class AState(StatesGroup):
-    # broadcast
-    broadcast_any = State()
+    waiting_file = State()
 
     # group create
     g_name = State()
@@ -2947,15 +3071,29 @@ async def cmd_cancel(message: Message, state: FSMContext):
 # STARTUP TASKS
 # =========================
 async def on_startup(bot: Bot):
-    # periodic enforcement
+    # periodic enforcement (kick limits, missed tasks, etc.)
     async def loop_kick():
         while True:
             try:
                 await enforce_kick_limits(bot)
-            except:
+            except Exception:
                 pass
             await asyncio.sleep(300)
+
+    # daily DB backup to admins at 06:00 Asia/Samarkand
+    async def loop_daily_backup():
+        while True:
+            try:
+                wait_s = seconds_until_local_time("Asia/Samarkand", 6, 0)
+                await asyncio.sleep(wait_s)
+                await send_db_backup_to_admins(bot, reason="daily 06:00")
+            except Exception:
+                # if something fails, don't crash the bot
+                await asyncio.sleep(300)
+
     asyncio.create_task(loop_kick())
+    asyncio.create_task(loop_daily_backup())
+
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
