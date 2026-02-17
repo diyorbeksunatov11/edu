@@ -811,6 +811,9 @@ class UState(StatesGroup):
 class AState(StatesGroup):
     waiting_file = State()
 
+    # global broadcast (any content: text or media)
+    broadcast_any = State()
+
     # group create
     g_name = State()
 
