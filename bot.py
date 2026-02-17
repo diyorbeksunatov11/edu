@@ -21,6 +21,7 @@ import sqlite3
 import string
 import html
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Optional, List, Tuple
 
 
@@ -457,6 +458,159 @@ async def guard_msg(message, perm: Optional[str] = None) -> bool:
             pass
         return False
     return True
+
+
+
+def get_all_admin_ids() -> List[int]:
+    """Return all admin user IDs including SUPER_ADMIN_ID."""
+    ids: List[int] = []
+    try:
+        with db() as conn:
+            rows = conn.execute("SELECT user_id FROM admins").fetchall()
+            ids = [int(r["user_id"]) for r in rows if r and r["user_id"] is not None]
+    except Exception:
+        ids = []
+    if SUPER_ADMIN_ID not in ids:
+        ids.insert(0, int(SUPER_ADMIN_ID))
+    # de-dup while preserving order
+    seen = set()
+    out: List[int] = []
+    for i in ids:
+        if i not in seen:
+            seen.add(i)
+            out.append(i)
+    return out
+
+
+def make_db_snapshot_zip() -> Tuple[str, str]:
+    """Create a consistent sqlite snapshot and return (zip_path, caption). Raises on failure."""
+    db_path = os.path.abspath(DB_NAME)
+    if not os.path.exists(db_path):
+        raise FileNotFoundError(f"DB topilmadi: {db_path}")
+
+    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    snap_path = f"/tmp/backup_{ts}_{os.path.basename(db_path)}"
+    zip_path = f"/tmp/backup_{ts}_{os.path.basename(db_path)}.zip"
+
+    # create snapshot
+    src = sqlite3.connect(db_path)
+    try:
+        dst = sqlite3.connect(snap_path)
+        try:
+            src.backup(dst)
+            dst.commit()
+        finally:
+            dst.close()
+    finally:
+        src.close()
+
+    # zip it (often smaller + safer)
+    import zipfile
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+        zf.write(snap_path, arcname=os.path.basename(db_path))
+
+    try:
+        os.remove(snap_path)
+    except Exception:
+        pass
+
+    size_mb = os.path.getsize(zip_path) / (1024 * 1024)
+    caption = (
+        f"✅ DB backup: <b>{escape_html(os.path.basename(db_path))}</b>\n"
+        f"📦 ZIP hajm: <b>{size_mb:.1f} MB</b>\n"
+        f"🕒 {escape_html(now_str())}"
+    )
+    return zip_path, caption
+
+
+async def send_db_backup_to_admins(bot: Bot, reason: str = "scheduled"):
+    """Send DB backup to all admins (DM). Never raises."""
+    try:
+        zip_path, caption = make_db_snapshot_zip()
+    except Exception as e:
+        # if snapshot failed, notify super admin only
+        try:
+            await bot.send_message(int(SUPER_ADMIN_ID), f"❌ DB backup xatolik ({escape_html(reason)}): <code>{escape_html(e)}</code>")
+        except Exception:
+            pass
+        return
+
+    # Telegram bot file size limits exist; try anyway, but warn if huge.
+    try:
+        size_mb = os.path.getsize(zip_path) / (1024 * 1024)
+        if size_mb > 45:
+            warn = f"⚠️ Backup fayl juda katta: <b>{size_mb:.1f} MB</b>. Telegram limitiga urilishi mumkin."
+        else:
+            warn = ""
+    except Exception:
+        warn = ""
+
+    ids = get_all_admin_ids()
+    for uid in ids:
+        try:
+            await bot.send_document(
+                chat_id=int(uid),
+                document=FSInputFile(zip_path, filename=os.path.basename(zip_path)),
+                caption=(caption + (("\n\n" + warn) if warn else ""))
+            )
+        except Exception:
+            # ignore per-admin failures (blocked bot, etc.)
+            pass
+
+    try:
+        os.remove(zip_path)
+    except Exception:
+        pass
+
+
+def seconds_until_next_backup(hour: int = 6, minute: int = 0, tz_name: str = "Asia/Samarkand") -> int:
+    """Seconds until next scheduled time in given timezone."""
+    tz = ZoneInfo(tz_name)
+    now = datetime.now(tz)
+    target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if target <= now:
+        target = target + timedelta(days=1)
+    return max(1, int((target - now).total_seconds()))
+
+
+# =========================
+# ADMIN: DB BACKUP (download SQLite file)
+# =========================
+@router.message(Command("backup_db"))
+async def cmd_backup_db(message: Message):
+    """Send current SQLite DB backup (zip) to admin as a document."""
+    if not await guard_msg(message, "admins"):
+        return
+    try:
+        zip_path, caption = make_db_snapshot_zip()
+    except Exception as e:
+        await message.reply(f"❌ Backup qilishda xatolik: <code>{escape_html(e)}</code>")
+        return
+
+    # Prefer sending to admin private chat (safer), fallback to current chat
+    target_chat_id = message.from_user.id
+    try:
+        await message.bot.send_document(
+            chat_id=target_chat_id,
+            document=FSInputFile(zip_path, filename=os.path.basename(zip_path)),
+            caption=caption
+        )
+        if message.chat.id != target_chat_id:
+            await message.reply("✅ Backup shaxsiy chatga yuborildi (DM).")
+    except Exception:
+        try:
+            await message.answer_document(
+                document=FSInputFile(zip_path, filename=os.path.basename(zip_path)),
+                caption=caption
+            )
+        except Exception as e:
+            await message.reply(f"❌ Fayl yuborilmadi: <code>{escape_html(e)}</code>")
+    finally:
+        try:
+            if os.path.exists(zip_path):
+                os.remove(zip_path)
+        except Exception:
+            pass
 
 def ensure_user(uid: int, name: str):
     conn = db()
