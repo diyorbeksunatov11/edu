@@ -14,6 +14,8 @@ import os
 import socket
 import inspect
 
+from aiohttp import web
+
 import bot as app  # your original single-file bot
 
 
@@ -61,6 +63,25 @@ async def _build_bot():
 async def main():
     bot = await _build_bot()
 
+    # --- Koyeb Web Service compatibility ---
+    # If your Koyeb Service is configured as a Web Service, it will run a TCP health check on $PORT.
+    # Your bot is a long-lived polling worker and doesn't listen on a port by default, so we expose
+    # a tiny HTTP endpoint to satisfy health checks without changing your bot logic.
+    port = int(os.getenv("PORT", "8000"))
+
+    health_app = web.Application()
+
+    async def _health(_request):
+        return web.Response(text="ok")
+
+    health_app.router.add_get("/", _health)
+    health_app.router.add_get("/health", _health)
+
+    health_runner = web.AppRunner(health_app)
+    await health_runner.setup()
+    health_site = web.TCPSite(health_runner, host="0.0.0.0", port=port)
+    await health_site.start()
+
     # Patch the module-level bot so handlers that reference `bot` keep working.
     try:
         app.bot = bot
@@ -89,7 +110,13 @@ async def main():
     except Exception:
         pass
 
-    await app.dp.start_polling(bot)
+    try:
+        await app.dp.start_polling(bot)
+    finally:
+        try:
+            await health_runner.cleanup()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
