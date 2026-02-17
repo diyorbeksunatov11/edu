@@ -1,0 +1,5 @@
+aiogram==3.*
+aiohttp>=3.9
+fpdf2>=2.7
+reportlab
+matplotlib
