@@ -17,6 +17,7 @@ import logging
 import os
 import time
 import shutil
+import zipfile
 import random
 import re
 import sqlite3
@@ -701,6 +702,28 @@ async def restore_db_document(message: Message, state: FSMContext):
     if not await guard_msg(message, "admins"):
         return
 
+    # Safety: backup current DB before restore
+    try:
+        pre_zip, pre_cap = make_db_snapshot_zip()
+        try:
+            await message.bot.send_document(
+                chat_id=message.from_user.id,
+                document=FSInputFile(pre_zip, filename=os.path.basename(pre_zip)),
+                caption=(pre_cap + "\n\n⚠️ Restore’dan oldingi avtomatik backup (before_restore).")
+            )
+        finally:
+            try:
+                if os.path.exists(pre_zip):
+                    os.remove(pre_zip)
+            except Exception:
+                pass
+    except Exception:
+        # If backup fails, continue but warn
+        try:
+            await message.reply("⚠️ Restore’dan oldin backup olishda xatolik bo‘ldi, lekin davom etaman.")
+        except Exception:
+            pass
+
     doc = message.document
     fname = (doc.file_name or "").lower()
     if not (fname.endswith(".db") or fname.endswith(".zip")):
@@ -918,10 +941,10 @@ def pdf_attendance(filename: str, group_name: str, date_s: str, rows: List[Tuple
     for i, (name, st) in enumerate(rows, 1):
         if st == "absent":
             pdf.set_fill_color(255, 210, 210)
-            label = "Qatnashmadi"
+            label = "Kelmadi"
         else:
             pdf.set_fill_color(200, 255, 200)
-            label = "Qatnashdi"
+            label = "Keldi"
         pdf.cell(10, 8, str(i), 1, 0, "C", True)
         pdf.cell(140, 8, safe_pdf_text(name)[:80], 1, 0, "L", True)
         pdf.cell(40, 8, safe_pdf_text(label), 1, 1, "C", True)
@@ -1613,7 +1636,7 @@ async def a_g_att_menu(call: CallbackQuery):
     kb_rows.append([InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
 
     await safe_edit(call, f"🗓 <b>Davomat</b>\nGuruh: <b>{safe_pdf_text(g['name'])}</b>\nSana: <code>{d}</code>\n\n"
-                          f"Faqat Qatnashmaganlarni ❌ qilib belgilang.", InlineKeyboardMarkup(inline_keyboard=kb_rows))
+                          f"Faqat kelmaganlarni ❌ qilib belgilang.", InlineKeyboardMarkup(inline_keyboard=kb_rows))
 
 @router.callback_query(F.data.startswith("a:att_t:"))
 async def a_att_toggle(call: CallbackQuery):
@@ -1665,15 +1688,15 @@ async def a_att_report_text(call: CallbackQuery):
             f"Guruh: <b>{safe_pdf_text(g['name'])}</b>\n"
             f"Sana: <code>{d}</code>\n\n"
             f"Jami: <b>{len(studs)}</b>\n"
-            f"✅ Qatnashdi: <b>{present}</b>\n"
-            f"❌ Qatnashmadi: <b>{len(absent)}</b>\n\n")
+            f"✅ Keldi: <b>{present}</b>\n"
+            f"❌ Kelmadi: <b>{len(absent)}</b>\n\n")
 
     if absent:
-        text += "❌ <b>QATNASHMAGANLAR:</b>\n"
+        text += "❌ <b>KELMAGANLAR:</b>\n"
         for i, (_uid, nm) in enumerate(absent, 1):
             text += f"{i}. {safe_pdf_text(nm)}\n"
     else:
-        text += "✅ Bugun hamma qatnashgan."
+        text += "✅ Bugun hamma kelgan."
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📥 PDF", callback_data=f"a:att_pdf:{gid}:{d}")],
@@ -1749,7 +1772,7 @@ async def a_att_send(call: CallbackQuery):
                 f"🗓 <b>Davomat ogohlantirish</b>\n"
                 f"Guruh: <b>{safe_pdf_text(g['name'])}</b>\n"
                 f"Sana: <code>{d}</code>\n\n"
-                f"Siz bugun darsga qatnashmadingiz ❌\n"
+                f"Siz bugun darsga kelmadingiz ❌\n"
                 f"Sababsiz qoldirish: <b>{cnt_abs}/{limit}</b>"
             )
             sent += 1
@@ -3780,7 +3803,7 @@ async def a_g_att_menu(call: CallbackQuery):
     kb_rows.append([InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
 
     await safe_edit(call, f"🗓 <b>Davomat</b>\nGuruh: <b>{safe_pdf_text(g['name'])}</b>\nSana: <code>{d}</code>\n\n"
-                          f"Faqat qatnashmaganlarni ❌ qilib belgilang.", InlineKeyboardMarkup(inline_keyboard=kb_rows))
+                          f"Faqat kelmaganlarni ❌ qilib belgilang.", InlineKeyboardMarkup(inline_keyboard=kb_rows))
 
 @router.callback_query(F.data.startswith("a:att_t:"))
 async def a_att_toggle(call: CallbackQuery):
@@ -3832,15 +3855,15 @@ async def a_att_report_text(call: CallbackQuery):
             f"Guruh: <b>{safe_pdf_text(g['name'])}</b>\n"
             f"Sana: <code>{d}</code>\n\n"
             f"Jami: <b>{len(studs)}</b>\n"
-            f"✅ Qatnashdi: <b>{present}</b>\n"
-            f"❌ Qatnashmadi: <b>{len(absent)}</b>\n\n")
+            f"✅ Keldi: <b>{present}</b>\n"
+            f"❌ Kelmadi: <b>{len(absent)}</b>\n\n")
 
     if absent:
-        text += "❌ <b>QATNASHMAGANLAR:</b>\n"
+        text += "❌ <b>KELMAGANLAR:</b>\n"
         for i, (_uid, nm) in enumerate(absent, 1):
             text += f"{i}. {safe_pdf_text(nm)}\n"
     else:
-        text += "✅ Bugun hamma qatnashgan."
+        text += "✅ Bugun hamma kelgan."
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📥 PDF", callback_data=f"a:att_pdf:{gid}:{d}")],
@@ -3916,7 +3939,7 @@ async def a_att_send(call: CallbackQuery):
                 f"🗓 <b>Davomat ogohlantirish</b>\n"
                 f"Guruh: <b>{safe_pdf_text(g['name'])}</b>\n"
                 f"Sana: <code>{d}</code>\n\n"
-                f"Siz bugun darsga qatnashmadingiz ❌\n"
+                f"Siz bugun darsga kelmadingiz ❌\n"
                 f"Sababsiz qoldirish: <b>{cnt_abs}/{limit}</b>"
             )
             sent += 1
