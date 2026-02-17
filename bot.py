@@ -668,6 +668,11 @@ def _restore_db_from_path(src_path: str) -> str:
     return os.path.basename(db_path)
 
 
+# --- Restore FSM state (must be defined before handlers) ---
+class RestoreState(StatesGroup):
+    waiting_file = State()
+
+
 @router.message(Command("restore_db"))
 async def cmd_restore_db(message: Message, state: FSMContext):
     """Ask admin to upload a .zip/.db to restore."""
@@ -778,9 +783,6 @@ class UState(StatesGroup):
     solve_tid = State()
     solve_answers = State()
     task_submit = State()
-
-class RestoreState(StatesGroup):
-    waiting_file = State()
 
 
 class AState(StatesGroup):
@@ -1611,7 +1613,7 @@ async def a_g_att_menu(call: CallbackQuery):
     kb_rows.append([InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
 
     await safe_edit(call, f"🗓 <b>Davomat</b>\nGuruh: <b>{safe_pdf_text(g['name'])}</b>\nSana: <code>{d}</code>\n\n"
-                          f"Faqat qatnashmaganlarni ❌ qilib belgilang.", InlineKeyboardMarkup(inline_keyboard=kb_rows))
+                          f"Faqat Qatnashmaganlarni ❌ qilib belgilang.", InlineKeyboardMarkup(inline_keyboard=kb_rows))
 
 @router.callback_query(F.data.startswith("a:att_t:"))
 async def a_att_toggle(call: CallbackQuery):
