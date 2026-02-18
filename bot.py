@@ -211,25 +211,23 @@ def kb_home_admin(uid: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 def kb_std_nav(is_admin: bool) -> InlineKeyboardMarkup:
+    """Standard navigation: Back + Menu on one line."""
     if is_admin:
         return InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⬅️ Ortga", callback_data="a:back")],
-            [InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")]
+            [InlineKeyboardButton(text="⬅️ Ortga", callback_data="a:back"),
+             InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")]
         ])
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⬅️ Ortga", callback_data="u:back")],
-        [InlineKeyboardButton(text="🏠 Menyu", callback_data="u:home")]
+        [InlineKeyboardButton(text="⬅️ Ortga", callback_data="u:back"),
+         InlineKeyboardButton(text="🏠 Menyu", callback_data="u:home")]
     ])
 
 
 def kb_back_home(back_cb: str = "a:home") -> InlineKeyboardMarkup:
-    """Inline navigation: Back + Home (admin callbacks).
-
-    back_cb should be a valid callback_data. Defaults to a safe "a:home".
-    """
+    """Inline navigation: Back + Menu on one line (admin callbacks)."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⬅️ Ortga", callback_data=back_cb)],
-        [InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")],
+        [InlineKeyboardButton(text="⬅️ Ortga", callback_data=back_cb),
+         InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")],
     ])
 
 # =========================
@@ -944,10 +942,10 @@ def pdf_attendance(filename: str, group_name: str, date_s: str, rows: List[Tuple
     for i, (name, st) in enumerate(rows, 1):
         if st == "absent":
             pdf.set_fill_color(255, 210, 210)
-            label = "Kelmadi"
+            label = "Qatnashmadi"
         else:
             pdf.set_fill_color(200, 255, 200)
-            label = "Keldi"
+            label = "Qatnashdi"
         pdf.cell(10, 8, str(i), 1, 0, "C", True)
         pdf.cell(140, 8, safe_pdf_text(name)[:80], 1, 0, "L", True)
         pdf.cell(40, 8, safe_pdf_text(label), 1, 1, "C", True)
@@ -1134,10 +1132,7 @@ async def u_group_tests(call: CallbackQuery):
 
     rows = tests_for_user_in_group(uid, gid)
     if not rows:
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"u:g:{gid}")],
-            [InlineKeyboardButton(text="🏠 Menyu", callback_data="u:home")],
-        ])
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"u:g:{gid}"), InlineKeyboardButton(text="🏠 Menyu", callback_data="u:home")]])
         await safe_edit(call, "Bu guruhda hozircha test yo‘q.", kb)
         return
 
@@ -1149,8 +1144,7 @@ async def u_group_tests(call: CallbackQuery):
             text=f"{icon} {r['test_id']} ({status})",
             callback_data=f"u:solve_tid:{r['test_id']}"
         )])
-    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"u:g:{gid}")])
-    kb_rows.append([InlineKeyboardButton(text="🏠 Menyu", callback_data="u:home")])
+    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"u:g:{gid}"), InlineKeyboardButton(text="🏠 Menyu", callback_data="u:home")])
     await safe_edit(call, f"🧪 <b>{safe_pdf_text(g['name'])}</b> — Testlar:", InlineKeyboardMarkup(inline_keyboard=kb_rows))
 
 # =========================
@@ -1439,8 +1433,7 @@ async def a_g_students(call: CallbackQuery):
     for i, s in enumerate(students, 1):
         text += f"{i}. {safe_pdf_text(s['full_name'])}\n"
         kb_rows.append([InlineKeyboardButton(text=f"❌ {s['full_name'][:18]}", callback_data=f"a:g_kick:{gid}:{s['user_id']}")])
-    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"a:g:{gid}")])
-    kb_rows.append([InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
+    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"a:g:{gid}"), InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
 
     await safe_edit(call, text, InlineKeyboardMarkup(inline_keyboard=kb_rows))
 
@@ -1635,11 +1628,10 @@ async def a_g_att_menu(call: CallbackQuery):
     kb_rows.append([InlineKeyboardButton(text="📄 Hisobot (text)", callback_data=f"a:att_rep:{gid}:{d}")])
     kb_rows.append([InlineKeyboardButton(text="📥 Hisobot (PDF)", callback_data=f"a:att_pdf:{gid}:{d}")])
     kb_rows.append([InlineKeyboardButton(text="🗂 Arxiv", callback_data=f"a:att_arc:{gid}")])
-    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"a:g:{gid}")])
-    kb_rows.append([InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
+    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"a:g:{gid}"), InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
 
     await safe_edit(call, f"🗓 <b>Davomat</b>\nGuruh: <b>{safe_pdf_text(g['name'])}</b>\nSana: <code>{d}</code>\n\n"
-                          f"Faqat kelmaganlarni ❌ qilib belgilang.", InlineKeyboardMarkup(inline_keyboard=kb_rows))
+                          f"Faqat qatnashmaganlarni ❌ qilib belgilang.", InlineKeyboardMarkup(inline_keyboard=kb_rows))
 
 @router.callback_query(F.data.startswith("a:att_t:"))
 async def a_att_toggle(call: CallbackQuery):
@@ -1691,15 +1683,15 @@ async def a_att_report_text(call: CallbackQuery):
             f"Guruh: <b>{safe_pdf_text(g['name'])}</b>\n"
             f"Sana: <code>{d}</code>\n\n"
             f"Jami: <b>{len(studs)}</b>\n"
-            f"✅ Keldi: <b>{present}</b>\n"
-            f"❌ Kelmadi: <b>{len(absent)}</b>\n\n")
+            f"✅ Qatnashdi: <b>{present}</b>\n"
+            f"❌ Qatnashmadi: <b>{len(absent)}</b>\n\n")
 
     if absent:
-        text += "❌ <b>KELMAGANLAR:</b>\n"
+        text += "❌ <b>QATNASHMAGANLAR:</b>\n"
         for i, (_uid, nm) in enumerate(absent, 1):
             text += f"{i}. {safe_pdf_text(nm)}\n"
     else:
-        text += "✅ Bugun hamma kelgan."
+        text += "✅ Bugun hamma qatnashgan."
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📥 PDF", callback_data=f"a:att_pdf:{gid}:{d}")],
@@ -1775,7 +1767,7 @@ async def a_att_send(call: CallbackQuery):
                 f"🗓 <b>Davomat ogohlantirish</b>\n"
                 f"Guruh: <b>{safe_pdf_text(g['name'])}</b>\n"
                 f"Sana: <code>{d}</code>\n\n"
-                f"Siz bugun darsga kelmadingiz ❌\n"
+                f"Siz bugun darsga qatnashmadingiz ❌\n"
                 f"Sababsiz qoldirish: <b>{cnt_abs}/{limit}</b>"
             )
             sent += 1
@@ -1824,8 +1816,7 @@ async def a_att_archive(call: CallbackQuery):
     for r in dates:
         d = r["att_date"]
         kb_rows.append([InlineKeyboardButton(text=f"📅 {d}", callback_data=f"a:att_rep:{gid}:{d}")])
-    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"a:g_att:{gid}")])
-    kb_rows.append([InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
+    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"a:g_att:{gid}"), InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
 
     await safe_edit(call, f"🗂 <b>Davomat arxivi</b>\nGuruh: <b>{safe_pdf_text(g['name'])}</b>", InlineKeyboardMarkup(inline_keyboard=kb_rows))
 
@@ -2000,8 +1991,7 @@ async def a_g_tests(call: CallbackQuery):
         icon = "🟢" if st == "active" else "⏸" if st == "paused" else "🏁"
         kb_rows.append([InlineKeyboardButton(text=f"{icon} {t['test_id']}", callback_data=f"a:t:{t['test_id']}")])
     kb_rows.append([InlineKeyboardButton(text="➕ Test yaratish", callback_data="a:t_add")])
-    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"a:g:{gid}")])
-    kb_rows.append([InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
+    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"a:g:{gid}"), InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
 
     await safe_edit(call, f"🧪 <b>{safe_pdf_text(g['name'])}</b> — Testlar", InlineKeyboardMarkup(inline_keyboard=kb_rows))
 
@@ -2037,8 +2027,7 @@ async def a_t_opt(call: CallbackQuery):
     kb_rows.append([InlineKeyboardButton(text="📥 Reyting (PDF)", callback_data=f"a:t_pdf:{tid}")])
     if st != "finished":
         kb_rows.append([InlineKeyboardButton(text="🔁 Biriktirish", callback_data=f"a:t_reassign:{tid}")])
-    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data="a:tests")])
-    kb_rows.append([InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
+    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data="a:tests"), InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
 
     text = (f"⚙️ <b>Test</b>: <code>{tid}</code>\n"
             f"Holat: <b>{st}</b>\n"
@@ -2324,8 +2313,7 @@ async def a_g_tasks(call: CallbackQuery):
         st = t["status"]
         icon = "🟡" if st == "draft" else "🟢" if st == "published" else "🏁"
         kb_rows.append([InlineKeyboardButton(text=f"{icon} {t['title'][:18]}", callback_data=f"a:task_v:{gid}:{t['id']}")])
-    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"a:g:{gid}")])
-    kb_rows.append([InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
+    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"a:g:{gid}"), InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
 
     await safe_edit(call, f"📌 <b>{safe_pdf_text(g['name'])}</b> — Vazifalar", InlineKeyboardMarkup(inline_keyboard=kb_rows))
 
@@ -2697,10 +2685,7 @@ async def a_task_grade_finish(message: Message, state: FSMContext):
         pass
 
     await state.clear()
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"a:task_sub_v:{sub_id}")],
-        [InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")],
-    ])
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"a:task_sub_v:{sub_id}"), InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")]])
     await message.answer("✅ Saqlandi va o‘quvchiga yuborildi.", reply_markup=kb)
 
 
@@ -2772,8 +2757,7 @@ async def u_tasks(call: CallbackQuery):
             text=f"📝 {t['title'][:18]}",
             callback_data=f"u:task_v:{gid}:{t['id']}"
         )])
-    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"u:g:{gid}")])
-    kb_rows.append([InlineKeyboardButton(text="🏠 Menyu", callback_data="u:home")])
+    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"u:g:{gid}"), InlineKeyboardButton(text="🏠 Menyu", callback_data="u:home")])
 
     await safe_edit(call, f"📌 <b>{safe_pdf_text(g['name'])}</b> — Vazifalar", InlineKeyboardMarkup(inline_keyboard=kb_rows))
 
@@ -3301,10 +3285,7 @@ async def u_group_tests(call: CallbackQuery):
 
     rows = tests_for_user_in_group(uid, gid)
     if not rows:
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"u:g:{gid}")],
-            [InlineKeyboardButton(text="🏠 Menyu", callback_data="u:home")],
-        ])
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"u:g:{gid}"), InlineKeyboardButton(text="🏠 Menyu", callback_data="u:home")]])
         await safe_edit(call, "Bu guruhda hozircha test yo‘q.", kb)
         return
 
@@ -3316,8 +3297,7 @@ async def u_group_tests(call: CallbackQuery):
             text=f"{icon} {r['test_id']} ({status})",
             callback_data=f"u:solve_tid:{r['test_id']}"
         )])
-    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"u:g:{gid}")])
-    kb_rows.append([InlineKeyboardButton(text="🏠 Menyu", callback_data="u:home")])
+    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"u:g:{gid}"), InlineKeyboardButton(text="🏠 Menyu", callback_data="u:home")])
     await safe_edit(call, f"🧪 <b>{safe_pdf_text(g['name'])}</b> — Testlar:", InlineKeyboardMarkup(inline_keyboard=kb_rows))
 
 # =========================
@@ -3606,8 +3586,7 @@ async def a_g_students(call: CallbackQuery):
     for i, s in enumerate(students, 1):
         text += f"{i}. {safe_pdf_text(s['full_name'])}\n"
         kb_rows.append([InlineKeyboardButton(text=f"❌ {s['full_name'][:18]}", callback_data=f"a:g_kick:{gid}:{s['user_id']}")])
-    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"a:g:{gid}")])
-    kb_rows.append([InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
+    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"a:g:{gid}"), InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
 
     await safe_edit(call, text, InlineKeyboardMarkup(inline_keyboard=kb_rows))
 
@@ -3802,11 +3781,10 @@ async def a_g_att_menu(call: CallbackQuery):
     kb_rows.append([InlineKeyboardButton(text="📄 Hisobot (text)", callback_data=f"a:att_rep:{gid}:{d}")])
     kb_rows.append([InlineKeyboardButton(text="📥 Hisobot (PDF)", callback_data=f"a:att_pdf:{gid}:{d}")])
     kb_rows.append([InlineKeyboardButton(text="🗂 Arxiv", callback_data=f"a:att_arc:{gid}")])
-    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"a:g:{gid}")])
-    kb_rows.append([InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
+    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"a:g:{gid}"), InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
 
     await safe_edit(call, f"🗓 <b>Davomat</b>\nGuruh: <b>{safe_pdf_text(g['name'])}</b>\nSana: <code>{d}</code>\n\n"
-                          f"Faqat kelmaganlarni ❌ qilib belgilang.", InlineKeyboardMarkup(inline_keyboard=kb_rows))
+                          f"Faqat qatnashmaganlarni ❌ qilib belgilang.", InlineKeyboardMarkup(inline_keyboard=kb_rows))
 
 @router.callback_query(F.data.startswith("a:att_t:"))
 async def a_att_toggle(call: CallbackQuery):
@@ -3858,15 +3836,15 @@ async def a_att_report_text(call: CallbackQuery):
             f"Guruh: <b>{safe_pdf_text(g['name'])}</b>\n"
             f"Sana: <code>{d}</code>\n\n"
             f"Jami: <b>{len(studs)}</b>\n"
-            f"✅ Keldi: <b>{present}</b>\n"
-            f"❌ Kelmadi: <b>{len(absent)}</b>\n\n")
+            f"✅ Qatnashdi: <b>{present}</b>\n"
+            f"❌ Qatnashmadi: <b>{len(absent)}</b>\n\n")
 
     if absent:
-        text += "❌ <b>KELMAGANLAR:</b>\n"
+        text += "❌ <b>QATNASHMAGANLAR:</b>\n"
         for i, (_uid, nm) in enumerate(absent, 1):
             text += f"{i}. {safe_pdf_text(nm)}\n"
     else:
-        text += "✅ Bugun hamma kelgan."
+        text += "✅ Bugun hamma qatnashgan."
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📥 PDF", callback_data=f"a:att_pdf:{gid}:{d}")],
@@ -3942,7 +3920,7 @@ async def a_att_send(call: CallbackQuery):
                 f"🗓 <b>Davomat ogohlantirish</b>\n"
                 f"Guruh: <b>{safe_pdf_text(g['name'])}</b>\n"
                 f"Sana: <code>{d}</code>\n\n"
-                f"Siz bugun darsga kelmadingiz ❌\n"
+                f"Siz bugun darsga qatnashmadingiz ❌\n"
                 f"Sababsiz qoldirish: <b>{cnt_abs}/{limit}</b>"
             )
             sent += 1
@@ -3991,8 +3969,7 @@ async def a_att_archive(call: CallbackQuery):
     for r in dates:
         d = r["att_date"]
         kb_rows.append([InlineKeyboardButton(text=f"📅 {d}", callback_data=f"a:att_rep:{gid}:{d}")])
-    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"a:g_att:{gid}")])
-    kb_rows.append([InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
+    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"a:g_att:{gid}"), InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
 
     await safe_edit(call, f"🗂 <b>Davomat arxivi</b>\nGuruh: <b>{safe_pdf_text(g['name'])}</b>", InlineKeyboardMarkup(inline_keyboard=kb_rows))
 
@@ -4167,8 +4144,7 @@ async def a_g_tests(call: CallbackQuery):
         icon = "🟢" if st == "active" else "⏸" if st == "paused" else "🏁"
         kb_rows.append([InlineKeyboardButton(text=f"{icon} {t['test_id']}", callback_data=f"a:t:{t['test_id']}")])
     kb_rows.append([InlineKeyboardButton(text="➕ Test yaratish", callback_data="a:t_add")])
-    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"a:g:{gid}")])
-    kb_rows.append([InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
+    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"a:g:{gid}"), InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
 
     await safe_edit(call, f"🧪 <b>{safe_pdf_text(g['name'])}</b> — Testlar", InlineKeyboardMarkup(inline_keyboard=kb_rows))
 
@@ -4204,8 +4180,7 @@ async def a_t_opt(call: CallbackQuery):
     kb_rows.append([InlineKeyboardButton(text="📥 Reyting (PDF)", callback_data=f"a:t_pdf:{tid}")])
     if st != "finished":
         kb_rows.append([InlineKeyboardButton(text="🔁 Biriktirish", callback_data=f"a:t_reassign:{tid}")])
-    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data="a:tests")])
-    kb_rows.append([InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
+    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data="a:tests"), InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
 
     text = (f"⚙️ <b>Test</b>: <code>{tid}</code>\n"
             f"Holat: <b>{st}</b>\n"
@@ -4491,8 +4466,7 @@ async def a_g_tasks(call: CallbackQuery):
         st = t["status"]
         icon = "🟡" if st == "draft" else "🟢" if st == "published" else "🏁"
         kb_rows.append([InlineKeyboardButton(text=f"{icon} {t['title'][:18]}", callback_data=f"a:task_v:{gid}:{t['id']}")])
-    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"a:g:{gid}")])
-    kb_rows.append([InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
+    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"a:g:{gid}"), InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
 
     await safe_edit(call, f"📌 <b>{safe_pdf_text(g['name'])}</b> — Vazifalar", InlineKeyboardMarkup(inline_keyboard=kb_rows))
 
@@ -4883,10 +4857,7 @@ async def a_task_grade_finish(message: Message, state: FSMContext):
         pass
 
     await state.clear()
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"a:task_sub_v:{sub_id}")],
-        [InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")],
-    ])
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"a:task_sub_v:{sub_id}"), InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")]])
     await message.answer("✅ Saqlandi va o‘quvchiga yuborildi.", reply_markup=kb)
 
 
@@ -4958,8 +4929,7 @@ async def u_tasks(call: CallbackQuery):
             text=f"📝 {t['title'][:18]}",
             callback_data=f"u:task_v:{gid}:{t['id']}"
         )])
-    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"u:g:{gid}")])
-    kb_rows.append([InlineKeyboardButton(text="🏠 Menyu", callback_data="u:home")])
+    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"u:g:{gid}"), InlineKeyboardButton(text="🏠 Menyu", callback_data="u:home")])
 
     await safe_edit(call, f"📌 <b>{safe_pdf_text(g['name'])}</b> — Vazifalar", InlineKeyboardMarkup(inline_keyboard=kb_rows))
 
@@ -5246,26 +5216,38 @@ async def on_startup(bot: Bot):
 # =========================
 async def start_health_server():
     """
-    Koyeb Web Service uses TCP health checks on $PORT (usually 8000).
-    This tiny server keeps the instance healthy while polling runs.
+    Koyeb Web Service uses TCP health checks on $PORT (often 8000).
+    We open the port using only stdlib (no extra deps) so the instance stays healthy.
     """
-    try:
-        from aiohttp import web
-    except Exception:
-        return None
     port = int(os.environ.get("PORT", "8000"))
-    app = web.Application()
 
-    async def health(_request):
-        return web.Response(text="ok")
+    async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        try:
+            # Read (and ignore) the request. Keep it small to avoid hangs.
+            await reader.read(1024)
 
-    app.router.add_get("/health", health)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, host="0.0.0.0", port=port)
-    await site.start()
+            resp = (
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 2\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+                b"ok"
+            )
+            writer.write(resp)
+            await writer.drain()
+        except Exception:
+            pass
+        finally:
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+    server = await asyncio.start_server(handle, host="0.0.0.0", port=port)
     logging.info("Health server listening on 0.0.0.0:%s", port)
-    return runner
+    return server
 
 
 # =========================
@@ -5276,7 +5258,7 @@ async def main():
         raise RuntimeError("BOT_TOKEN is not set. Set environment variable BOT_TOKEN (or DB_PATH for DB).")
 
     # Start health server (for Koyeb web service) - does not affect bot logic.
-    _health_runner = await start_health_server()
+    _health_server = await start_health_server()
 
     bot = Bot(
         token=API_TOKEN,
