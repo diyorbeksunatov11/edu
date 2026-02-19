@@ -336,6 +336,14 @@ def init_db() -> None:
             UNIQUE(group_id, user_id, att_date)
         )""")
 
+    # Attendance days archive (a day is considered "saved/finalized" when admin presses Save/Report/DM)
+    c.execute("""CREATE TABLE IF NOT EXISTS attendance_days(
+        group_id INTEGER,
+        att_date TEXT,
+        saved_at TEXT,
+        saved_by INTEGER,
+        PRIMARY KEY(group_id, att_date)
+    )""")
     # Counters
     c.execute("""CREATE TABLE IF NOT EXISTS counters(
             group_id INTEGER,
@@ -1601,8 +1609,9 @@ def group_students(gid: int) -> List[Tuple[int, str]]:
 async def a_g_att_menu(call: CallbackQuery):
     if not await guard(call, "attendance"):
         return
-    gid = int(call.data.split(":")[2])
-    d = today_str()
+    parts = call.data.split(":")
+    gid = int(parts[2])
+    d = parts[3] if len(parts) > 3 else today_str()
 
     conn = db()
     g = conn.execute("SELECT name FROM groups WHERE id=?", (gid,)).fetchone()
@@ -1624,6 +1633,7 @@ async def a_g_att_menu(call: CallbackQuery):
             callback_data=f"a:att_t:{gid}:{uid}:{d}"
         )])
 
+    kb_rows.append([InlineKeyboardButton(text="✅ Saqlash", callback_data=f"a:att_save:{gid}:{d}")])
     kb_rows.append([InlineKeyboardButton(text="📨 Yo‘qlarga DM yuborish", callback_data=f"a:att_send:{gid}:{d}")])
     kb_rows.append([InlineKeyboardButton(text="📄 Hisobot (text)", callback_data=f"a:att_rep:{gid}:{d}")])
     kb_rows.append([InlineKeyboardButton(text="📥 Hisobot (PDF)", callback_data=f"a:att_pdf:{gid}:{d}")])
@@ -1632,6 +1642,22 @@ async def a_g_att_menu(call: CallbackQuery):
 
     await safe_edit(call, f"🗓 <b>Davomat</b>\nGuruh: <b>{safe_pdf_text(g['name'])}</b>\nSana: <code>{d}</code>\n\n"
                           f"Faqat qatnashmaganlarni ❌ qilib belgilang.", InlineKeyboardMarkup(inline_keyboard=kb_rows))
+
+
+@router.callback_query(F.data.startswith("a:att:"))
+async def a_att_open(call: CallbackQuery):
+    # Open attendance for selected archived date
+    if not await guard(call, "attendance"):
+        return
+    parts = call.data.split(":")
+    if len(parts) < 4:
+        await call.answer("Xatolik.", show_alert=True)
+        return
+    gid = int(parts[2])
+    d = parts[3]
+    # reuse the same screen via a:g_att: with date
+    call.data = f"a:g_att:{gid}:{d}"
+    await a_g_att_menu(call)
 
 @router.callback_query(F.data.startswith("a:att_t:"))
 async def a_att_toggle(call: CallbackQuery):
@@ -1666,6 +1692,10 @@ async def a_att_report_text(call: CallbackQuery):
         return
     _, _, gid, d = call.data.split(":")
     gid = int(gid)
+
+    # save day to archive / apply kick limits (only once per date)
+    await finalize_attendance_day(call.bot, gid, d, saved_by=call.from_user.id, send_dm=False)
+
 
     conn = db()
     g = conn.execute("SELECT name FROM groups WHERE id=?", (gid,)).fetchone()
@@ -1707,6 +1737,10 @@ async def a_att_pdf(call: CallbackQuery):
     _, _, gid, d = call.data.split(":")
     gid = int(gid)
 
+    # save day to archive / apply kick limits (only once per date)
+    await finalize_attendance_day(call.bot, gid, d, saved_by=call.from_user.id, send_dm=False)
+
+
     conn = db()
     g = conn.execute("SELECT name FROM groups WHERE id=?", (gid,)).fetchone()
     conn.close()
@@ -1728,6 +1762,83 @@ async def a_att_pdf(call: CallbackQuery):
         except:
             pass
 
+
+
+# ---------------- Attendance finalize / archive / auto-kick ----------------
+async def finalize_attendance_day(bot: Bot, gid: int, att_date: str, saved_by: int, *, send_dm: bool = False) -> dict:
+    """Finalize attendance day: record day into attendance_days (once), increment absent counters once, and auto-kick if limit reached.
+    If send_dm=True, DM absent users with their current counter (does not re-increment if already finalized)."""
+    conn = db()
+    g = conn.execute("SELECT id, name, tg_chat_id, att_absent_limit FROM groups WHERE id=?", (gid,)).fetchone()
+    conn.close()
+    if not g:
+        return {"ok": False, "error": "group_not_found"}
+
+    studs = group_students(gid)
+    amap = attendance_map(gid, att_date)
+    absent = [(uid, nm) for uid, nm in studs if amap.get(uid, "present") == "absent"]
+
+    conn = db()
+    cur = conn.execute(
+        "INSERT OR IGNORE INTO attendance_days(group_id, att_date, saved_at, saved_by) VALUES (?,?,?,?)",
+        (gid, att_date, now_str(), int(saved_by)),
+    )
+    conn.commit()
+    inserted = (cur.rowcount == 1)
+    conn.close()
+
+    sent = 0
+    kicked = 0
+
+    limit = int(g["att_absent_limit"] or 0)
+    if limit <= 0:
+        limit = 999999
+
+    for uid, nm in absent:
+        conn = db()
+        conn.execute("INSERT OR IGNORE INTO counters(group_id, user_id, absent_count, missed_task_count) VALUES (?,?,0,0)", (gid, uid))
+        if inserted:
+            conn.execute("UPDATE counters SET absent_count = absent_count + 1 WHERE group_id=? AND user_id=?", (gid, uid))
+        row = conn.execute("SELECT absent_count FROM counters WHERE group_id=? AND user_id=?", (gid, uid)).fetchone()
+        conn.commit()
+        conn.close()
+
+        cnt_abs = int(row["absent_count"]) if row else 0
+
+        if send_dm:
+            try:
+                await bot.send_message(
+                    uid,
+                    f"🗓 <b>Davomat ogohlantirish</b>\n"
+                    f"Guruh: <b>{safe_pdf_text(g['name'])}</b>\n"
+                    f"Sana: <code>{att_date}</code>\n\n"
+                    f"Siz bugun darsga qatnashmadingiz ❌\n"
+                    f"Sababsiz qoldirish: <b>{cnt_abs}/{limit}</b>",
+                )
+                sent += 1
+            except Exception:
+                pass
+
+        if inserted and cnt_abs >= limit:
+            conn = db()
+            conn.execute("DELETE FROM members WHERE group_id=? AND user_id=?", (gid, uid))
+            conn.commit()
+            conn.close()
+
+            if g["tg_chat_id"]:
+                try:
+                    await bot.ban_chat_member(chat_id=int(g["tg_chat_id"]), user_id=uid)
+                    await bot.unban_chat_member(chat_id=int(g["tg_chat_id"]), user_id=uid)
+                except Exception:
+                    pass
+            try:
+                await bot.send_message(uid, f"⛔️ Siz <b>{safe_pdf_text(g['name'])}</b> guruhidan chiqarildingiz (davomat limitiga yetdi).")
+            except Exception:
+                pass
+            kicked += 1
+
+    return {"ok": True, "inserted": inserted, "absent": len(absent), "sent": sent, "kicked": kicked}
+
 @router.callback_query(F.data.startswith("a:att_send:"))
 async def a_att_send(call: CallbackQuery):
     if not await guard(call, "attendance"):
@@ -1735,67 +1846,33 @@ async def a_att_send(call: CallbackQuery):
     _, _, gid, d = call.data.split(":")
     gid = int(gid)
 
-    conn = db()
-    g = conn.execute("SELECT name, tg_chat_id, att_absent_limit FROM groups WHERE id=?", (gid,)).fetchone()
-    conn.close()
-    if not g:
-        await call.answer("Guruh topilmadi.", show_alert=True)
+    res = await finalize_attendance_day(call.bot, gid, d, saved_by=call.from_user.id, send_dm=True)
+    if not res.get("ok"):
+        await call.answer("Xatolik.", show_alert=True)
         return
 
-    studs = group_students(gid)
-    amap = attendance_map(gid, d)
-    absent = [(uid, nm) for uid, nm in studs if amap.get(uid, "present") == "absent"]
+    msg = f"✅ Yuborildi: {res['sent']} ta\n📌 Yo‘qlar: {res['absent']} ta"
+    msg += "\n🗂 Arxivga saqlandi." if res.get("inserted") else "\nℹ️ Bu sana avval saqlangan."
+    if res.get("kicked"):
+        msg += f"\n⛔️ Kick: {res['kicked']}"
+    await call.answer(msg, show_alert=True)
 
-    sent = 0
-    for uid, nm in absent:
-        # increment absent counter
-        conn = db()
-        conn.execute("INSERT OR IGNORE INTO counters(group_id, user_id, absent_count, missed_task_count) VALUES (?,?,0,0)",
-                     (gid, uid))
-        conn.execute("UPDATE counters SET absent_count = absent_count + 1 WHERE group_id=? AND user_id=?", (gid, uid))
-        row = conn.execute("SELECT absent_count FROM counters WHERE group_id=? AND user_id=?", (gid, uid)).fetchone()
-        conn.commit()
-        conn.close()
+@router.callback_query(F.data.startswith("a:att_save:"))
+async def a_att_save(call: CallbackQuery):
+    if not await guard(call, "attendance"):
+        return
+    _, _, gid, d = call.data.split(":")
+    gid = int(gid)
 
-        cnt_abs = int(row["absent_count"]) if row else 0
-        limit = int(g["att_absent_limit"])
+    res = await finalize_attendance_day(call.bot, gid, d, saved_by=call.from_user.id, send_dm=False)
+    if not res.get("ok"):
+        await call.answer("Xatolik.", show_alert=True)
+        return
 
-        # DM user
-        try:
-            await call.bot.send_message(
-                uid,
-                f"🗓 <b>Davomat ogohlantirish</b>\n"
-                f"Guruh: <b>{safe_pdf_text(g['name'])}</b>\n"
-                f"Sana: <code>{d}</code>\n\n"
-                f"Siz bugun darsga qatnashmadingiz ❌\n"
-                f"Sababsiz qoldirish: <b>{cnt_abs}/{limit}</b>"
-            )
-            sent += 1
-        except:
-            pass
-
-        # auto-kick if exceeded
-        if cnt_abs >= limit:
-            # remove from DB
-            conn = db()
-            conn.execute("DELETE FROM members WHERE group_id=? AND user_id=?", (gid, uid))
-            conn.commit()
-            conn.close()
-
-            # kick from telegram group if possible
-            if g["tg_chat_id"]:
-                try:
-                    await call.bot.ban_chat_member(chat_id=int(g["tg_chat_id"]), user_id=uid)
-                    await call.bot.unban_chat_member(chat_id=int(g["tg_chat_id"]), user_id=uid)
-                except:
-                    pass
-            try:
-                await call.bot.send_message(uid, f"⛔️ Siz <b>{safe_pdf_text(g['name'])}</b> guruhidan chiqarildingiz (davomat limiti oshdi).")
-            except:
-                pass
-
-    await call.answer(f"Yuborildi: {sent} ta", show_alert=True)
-    await a_g_att_menu(call)
+    if res.get("inserted"):
+        await call.answer("✅ Davomat saqlandi va arxivga qo‘shildi.", show_alert=True)
+    else:
+        await call.answer("ℹ️ Bu sana avval saqlangan.", show_alert=True)
 
 @router.callback_query(F.data.startswith("a:att_arc:"))
 async def a_att_archive(call: CallbackQuery):
@@ -1804,25 +1881,27 @@ async def a_att_archive(call: CallbackQuery):
     gid = int(call.data.split(":")[2])
     conn = db()
     g = conn.execute("SELECT name FROM groups WHERE id=?", (gid,)).fetchone()
-    dates = conn.execute("""
-        SELECT DISTINCT att_date FROM attendance WHERE group_id=? ORDER BY att_date DESC LIMIT 30
-    """, (gid,)).fetchall()
+    dates = conn.execute("SELECT att_date FROM attendance_days WHERE group_id=? ORDER BY att_date DESC LIMIT 60", (gid,)).fetchall()
     conn.close()
+
     if not g:
         await call.answer("Guruh topilmadi.", show_alert=True)
         return
 
-    kb_rows = []
+    rows = []
     for r in dates:
         d = r["att_date"]
-        kb_rows.append([InlineKeyboardButton(text=f"📅 {d}", callback_data=f"a:att_rep:{gid}:{d}")])
-    kb_rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"a:g_att:{gid}"), InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
+        rows.append([InlineKeyboardButton(text=f"🗓 {d}", callback_data=f"a:att:{gid}:{d}")])
 
-    await safe_edit(call, f"🗂 <b>Davomat arxivi</b>\nGuruh: <b>{safe_pdf_text(g['name'])}</b>", InlineKeyboardMarkup(inline_keyboard=kb_rows))
+    if not rows:
+        rows.append([InlineKeyboardButton(text="(Arxiv bo‘sh)", callback_data="noop")])
 
-# =========================
-# ADMIN: TESTS (create + assign)
-# =========================
+    rows.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"a:g_att:{gid}"), InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")])
+
+    await safe_edit(call,
+                    f"🗂 <b>Davomat arxivi</b>\nGuruh: <b>{safe_pdf_text(g['name'])}</b>\n\nSaqlangan sanalar:",
+                    InlineKeyboardMarkup(inline_keyboard=rows))
+
 @router.callback_query(F.data == "a:tests")
 async def a_tests(call: CallbackQuery):
     if not await guard(call, "tests"):
@@ -2108,22 +2187,47 @@ async def a_t_pdf(call: CallbackQuery):
     tid = call.data.split(":")[2]
 
     conn = db()
-    rows = conn.execute("""SELECT full_name, percent, date
-                           FROM results WHERE test_id=?
-                           ORDER BY percent DESC""", (tid,)).fetchall()
-    conn.close()
+    try:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(results)").fetchall()]
+        has_score = "score" in cols
+        has_total = "total" in cols
+        has_date = "date" in cols
+
+        select_cols = ["full_name", "percent"]
+        if has_score:
+            select_cols.append("score")
+        if has_total:
+            select_cols.append("total")
+        if has_date:
+            select_cols.append("date")
+
+        q = f"SELECT {', '.join(select_cols)} FROM results WHERE test_id=? ORDER BY percent DESC"
+        rows = conn.execute(q, (tid,)).fetchall()
+    finally:
+        conn.close()
+
     if not rows:
         await call.answer("Natija yo‘q.", show_alert=True)
         return
 
     fname = f"rating_{tid}.pdf"
-    pdf_rows = [(r["full_name"], int(r["score"]), int(r["total"]), float(r["percent"]), r["date"]) for r in rows]
+    pdf_rows = []
+    for r in rows:
+        name = r["full_name"]
+        percent = float(r["percent"] or 0)
+        score = int(r["score"] or 0) if has_score else 0
+        total = int(r["total"] or 0) if has_total else 0
+        date = r["date"] if has_date and r["date"] else ""
+        pdf_rows.append((name, score, total, percent, date))
+
     pdf_rating(fname, f"Reyting — Test {tid}", pdf_rows)
     try:
         await call.message.answer_document(FSInputFile(fname))
     finally:
-        try: os.remove(fname)
-        except: pass
+        try:
+            os.remove(fname)
+        except Exception:
+            pass
 
 @router.callback_query(F.data.startswith("a:t_reassign:"))
 async def a_t_reassign(call: CallbackQuery, state: FSMContext):
