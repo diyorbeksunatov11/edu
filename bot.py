@@ -926,7 +926,7 @@ def pdf_rating(filename: str, title: str, rows: List[Tuple[str, int, int, float,
     pdf.set_fill_color(230, 230, 230)
 
     pdf.cell(12, 8, pdf_safe("No"), 1, 0, "C", True)
-    pdf.cell(78, 8, pdf_safe("Ism"), 1, 0, "C", True)
+    pdf.cell(78, 8, pdf_safe("Ism va familiya"), 1, 0, "C", True)
     pdf.cell(26, 8, pdf_safe("Ball"), 1, 0, "C", True)
     pdf.cell(22, 8, pdf_safe("Foiz"), 1, 0, "C", True)
     pdf.cell(52, 8, pdf_safe("Sana"), 1, 1, "C", True)
@@ -971,7 +971,7 @@ def pdf_attendance(filename: str, group_name: str, date_s: str, rows: List[Tuple
     pdf.set_font("Arial", "B", 10)
     pdf.set_fill_color(230, 230, 230)
     pdf.cell(10, 8, "#", 1, 0, "C", True)
-    pdf.cell(140, 8, "Ism", 1, 0, "L", True)
+    pdf.cell(140, 8, "Ism va familiya", 1, 0, "L", True)
     pdf.cell(40, 8, "Holat", 1, 1, "C", True)
 
     pdf.set_font("Arial", "", 10)
