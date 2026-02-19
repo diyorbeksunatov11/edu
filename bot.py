@@ -59,6 +59,34 @@ from aiogram.fsm.state import State, StatesGroup
 
 # ---- PDF (fpdf) ----
 from fpdf import FPDF
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+
+UZ_TZ = ZoneInfo("Asia/Tashkent")
+
+def to_uz_time_str(dt_value) -> str:
+    """Convert DB datetime (str/datetime) to Uzbekistan time string YYYY-MM-DD HH:MM."""
+    if dt_value is None:
+        return ""
+    if isinstance(dt_value, datetime):
+        dt = dt_value
+    else:
+        s = str(dt_value).strip()
+        if not s:
+            return ""
+        s2 = s.replace(" ", "T")
+        try:
+            dt = datetime.fromisoformat(s2)
+        except Exception:
+            try:
+                dt = datetime.strptime(s[:19], "%Y-%m-%d %H:%M:%S")
+            except Exception:
+                return s
+    if dt.tzinfo is None:
+        # store naive timestamps as UTC
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(UZ_TZ).strftime("%Y-%m-%d %H:%M")
+
 
 # =========================
 # CONFIG (yours; can be fake)
@@ -910,11 +938,11 @@ def pdf_rating(filename: str, title: str, rows: List[Tuple[str, int, int, float,
 
         # Color bands (you requested: 85+ green, 65+ yellow, else red)
         if p >= 85:
-            pdf.set_fill_color(200, 255, 200)
+            pdf.set_fill_color(90, 220, 120)
         elif p >= 65:
-            pdf.set_fill_color(255, 255, 200)
+            pdf.set_fill_color(255, 215, 80)
         else:
-            pdf.set_fill_color(255, 210, 210)
+            pdf.set_fill_color(255, 110, 110)
 
         pdf.cell(12, 8, str(i), 1, 0, "C", True)
         pdf.cell(78, 8, pdf_safe(name)[:44], 1, 0, "L", True)
@@ -2171,7 +2199,7 @@ async def a_t_rate(call: CallbackQuery):
 
     text = f"🏆 <b>Reyting</b> — <code>{tid}</code>\nHolat: <b>{st}</b> | ⏰ <code>{dl}</code>\n\n"
     for i, r in enumerate(rows, 1):
-        text += f"{i}. {safe_pdf_text(r['full_name'])} — <b>{r['percent']:.1f}%</b> | {r['date']}\n"
+        text += f"{i}. {safe_pdf_text(r['full_name'])} — <b>{r['percent']:.1f}%</b> | {to_uz_time_str(r['date'])}\n"
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📥 PDF", callback_data=f"a:t_pdf:{tid}")],
@@ -2179,55 +2207,6 @@ async def a_t_rate(call: CallbackQuery):
         [InlineKeyboardButton(text="🏠 Menyu", callback_data="a:home")],
     ])
     await safe_edit(call, text, kb)
-
-@router.callback_query(F.data.startswith("a:t_pdf:"))
-async def a_t_pdf(call: CallbackQuery):
-    if not await guard(call, "tests"):
-        return
-    tid = call.data.split(":")[2]
-
-    conn = db()
-    try:
-        cols = [r[1] for r in conn.execute("PRAGMA table_info(results)").fetchall()]
-        has_score = "score" in cols
-        has_total = "total" in cols
-        has_date = "date" in cols
-
-        select_cols = ["full_name", "percent"]
-        if has_score:
-            select_cols.append("score")
-        if has_total:
-            select_cols.append("total")
-        if has_date:
-            select_cols.append("date")
-
-        q = f"SELECT {', '.join(select_cols)} FROM results WHERE test_id=? ORDER BY percent DESC"
-        rows = conn.execute(q, (tid,)).fetchall()
-    finally:
-        conn.close()
-
-    if not rows:
-        await call.answer("Natija yo‘q.", show_alert=True)
-        return
-
-    fname = f"rating_{tid}.pdf"
-    pdf_rows = []
-    for r in rows:
-        name = r["full_name"]
-        percent = float(r["percent"] or 0)
-        score = int(r["score"] or 0) if has_score else 0
-        total = int(r["total"] or 0) if has_total else 0
-        date = r["date"] if has_date and r["date"] else ""
-        pdf_rows.append((name, score, total, percent, date))
-
-    pdf_rating(fname, f"Reyting — Test {tid}", pdf_rows)
-    try:
-        await call.message.answer_document(FSInputFile(fname))
-    finally:
-        try:
-            os.remove(fname)
-        except Exception:
-            pass
 
 @router.callback_query(F.data.startswith("a:t_reassign:"))
 async def a_t_reassign(call: CallbackQuery, state: FSMContext):
@@ -4349,7 +4328,7 @@ async def a_t_rate(call: CallbackQuery):
 
     text = f"🏆 <b>Reyting</b> — <code>{tid}</code>\nHolat: <b>{st}</b> | ⏰ <code>{dl}</code>\n\n"
     for i, r in enumerate(rows, 1):
-        text += f"{i}. {safe_pdf_text(r['full_name'])} — <b>{r['percent']:.1f}%</b> | {r['date']}\n"
+        text += f"{i}. {safe_pdf_text(r['full_name'])} — <b>{r['percent']:.1f}%</b> | {to_uz_time_str(r['date'])}\n"
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📥 PDF", callback_data=f"a:t_pdf:{tid}")],
@@ -4365,22 +4344,48 @@ async def a_t_pdf(call: CallbackQuery):
     tid = call.data.split(":")[2]
 
     conn = db()
-    rows = conn.execute("""SELECT full_name, percent, date
-                           FROM results WHERE test_id=?
-                           ORDER BY percent DESC""", (tid,)).fetchall()
-    conn.close()
+    try:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(results)").fetchall()]
+        has_score = "score" in cols
+        has_total = "total" in cols
+        has_date = "date" in cols
+
+        select_cols = ["full_name", "percent"]
+        if has_score:
+            select_cols.append("score")
+        if has_total:
+            select_cols.append("total")
+        if has_date:
+            select_cols.append("date")
+
+        q = f"SELECT {', '.join(select_cols)} FROM results WHERE test_id=? ORDER BY percent DESC"
+        rows = conn.execute(q, (tid,)).fetchall()
+    finally:
+        conn.close()
+
     if not rows:
         await call.answer("Natija yo‘q.", show_alert=True)
         return
 
     fname = f"rating_{tid}.pdf"
-    pdf_rows = [(r["full_name"], int(r["score"]), int(r["total"]), float(r["percent"]), r["date"]) for r in rows]
+    pdf_rows: List[Tuple[str, int, int, float, str]] = []
+    for r in rows:
+        name = r["full_name"]
+        percent = float(r["percent"] or 0)
+        score = int(r["score"] or 0) if has_score else 0
+        total = int(r["total"] or 0) if has_total else 0
+        date_raw = r["date"] if has_date and r["date"] else ""
+        date_s = to_uz_time_str(date_raw) if date_raw else ""
+        pdf_rows.append((name, score, total, percent, date_s))
+
     pdf_rating(fname, f"Reyting — Test {tid}", pdf_rows)
     try:
         await call.message.answer_document(FSInputFile(fname))
     finally:
-        try: os.remove(fname)
-        except: pass
+        try:
+            os.remove(fname)
+        except Exception:
+            pass
 
 @router.callback_query(F.data.startswith("a:t_reassign:"))
 async def a_t_reassign(call: CallbackQuery, state: FSMContext):
