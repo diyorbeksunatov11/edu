@@ -1663,7 +1663,11 @@ async def a_g_att_menu(call: CallbackQuery):
     parts = call.data.split(":")
     gid = int(parts[2])
     d = parts[3] if len(parts) > 3 else today_str()
+    await _render_attendance_screen(call, gid, d)
 
+
+async def _render_attendance_screen(call: CallbackQuery, gid: int, d: str):
+    """Render attendance UI for group/date. Do NOT mutate call.data (CallbackQuery is frozen in aiogram v3)."""
     conn = db()
     g = conn.execute("SELECT name FROM groups WHERE id=?", (gid,)).fetchone()
     conn.close()
@@ -1706,9 +1710,8 @@ async def a_att_open(call: CallbackQuery):
         return
     gid = int(parts[2])
     d = parts[3]
-    # reuse the same screen via a:g_att: with date
-    call.data = f"a:g_att:{gid}:{d}"
-    await a_g_att_menu(call)
+    # Open the same attendance screen for archived date
+    await _render_attendance_screen(call, gid, d)
 
 @router.callback_query(F.data.startswith("a:att_t:"))
 async def a_att_toggle(call: CallbackQuery):
