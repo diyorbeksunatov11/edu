@@ -281,6 +281,29 @@ def migrate_task_submissions_columns(conn: sqlite3.Connection) -> None:
         c.execute("ALTER TABLE task_submissions ADD COLUMN graded_by INTEGER")
 
 
+
+
+def ensure_attendance_schema(conn) -> None:
+    """Ensure attendance tables exist for older DBs or after restore."""
+    c = conn.cursor()
+    c.execute("""CREATE TABLE IF NOT EXISTS attendance_archive(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        group_id INTEGER,
+        user_id INTEGER,
+        att_date TEXT,
+        status TEXT,
+        note TEXT,
+        created_at TEXT
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS attendance_days(
+        group_id INTEGER,
+        att_date TEXT,
+        saved_at TEXT,
+        saved_by INTEGER,
+        PRIMARY KEY(group_id, att_date)
+    )""")
+    conn.commit()
+
 def init_db() -> None:
     conn = db()
     c = conn.cursor()
@@ -926,7 +949,7 @@ def pdf_rating(filename: str, title: str, rows: List[Tuple[str, int, int, float,
     pdf.set_fill_color(230, 230, 230)
 
     pdf.cell(12, 8, pdf_safe("No"), 1, 0, "C", True)
-    pdf.cell(78, 8, pdf_safe("Ism va familiya"), 1, 0, "C", True)
+    pdf.cell(78, 8, pdf_safe("Ism"), 1, 0, "C", True)
     pdf.cell(26, 8, pdf_safe("Ball"), 1, 0, "C", True)
     pdf.cell(22, 8, pdf_safe("Foiz"), 1, 0, "C", True)
     pdf.cell(52, 8, pdf_safe("Sana"), 1, 1, "C", True)
@@ -971,7 +994,7 @@ def pdf_attendance(filename: str, group_name: str, date_s: str, rows: List[Tuple
     pdf.set_font("Arial", "B", 10)
     pdf.set_fill_color(230, 230, 230)
     pdf.cell(10, 8, "#", 1, 0, "C", True)
-    pdf.cell(140, 8, "Ism va familiya", 1, 0, "L", True)
+    pdf.cell(140, 8, "Ism", 1, 0, "L", True)
     pdf.cell(40, 8, "Holat", 1, 1, "C", True)
 
     pdf.set_font("Arial", "", 10)
@@ -1909,7 +1932,16 @@ async def a_att_archive(call: CallbackQuery):
     gid = int(call.data.split(":")[2])
     conn = db()
     g = conn.execute("SELECT name FROM groups WHERE id=?", (gid,)).fetchone()
-    dates = conn.execute("SELECT att_date FROM attendance_days WHERE group_id=? ORDER BY att_date DESC LIMIT 60", (gid,)).fetchall()
+    
+    try:
+        dates = conn.execute("SELECT att_date FROM attendance_days WHERE group_id=? ORDER BY att_date DESC LIMIT 60", (gid,)).fetchall()
+    except Exception as e:
+        if "attendance_days" in str(e):
+            ensure_attendance_schema(conn)
+            dates = conn.execute("SELECT att_date FROM attendance_days WHERE group_id=? ORDER BY att_date DESC LIMIT 60", (gid,)).fetchall()
+        else:
+            raise
+
     conn.close()
 
     if not g:
