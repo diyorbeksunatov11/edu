@@ -161,6 +161,28 @@ def db() -> sqlite3.Connection:
     return conn
 
 
+def ensure_attendance_schema(conn: sqlite3.Connection) -> None:
+    """Ensure attendance tables exist (safe to call often). Helps after DB restore/migrations."""
+    c = conn.cursor()
+    c.execute("""CREATE TABLE IF NOT EXISTS attendance_archive(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        group_id INTEGER,
+        user_id INTEGER,
+        att_date TEXT,
+        status TEXT,
+        note TEXT,
+        created_at TEXT
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS attendance_days(
+        group_id INTEGER,
+        att_date TEXT,
+        saved_at TEXT,
+        saved_by INTEGER,
+        PRIMARY KEY(group_id, att_date)
+    )""")
+    conn.commit()
+
+
 
 def log_admin(admin_id: int, action: str, payload: dict | None = None) -> None:
     """Best-effort admin audit logger. Never raises."""
@@ -1934,6 +1956,7 @@ async def a_att_archive(call: CallbackQuery):
         return
     gid = int(call.data.split(":")[2])
     conn = db()
+    ensure_attendance_schema(conn)
     g = conn.execute("SELECT name FROM groups WHERE id=?", (gid,)).fetchone()
     
     try:
@@ -5367,9 +5390,12 @@ async def start_health_server():
 
     async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         try:
-            # Read (and ignore) the request. Keep it small to avoid hangs.
-            await reader.read(1024)
-
+            # Don't block waiting for request bytes; health checks may only open TCP.
+            try:
+                await asyncio.wait_for(reader.read(16), timeout=0.2)
+            except Exception:
+                pass
+        
             resp = (
                 b"HTTP/1.1 200 OK\r\n"
                 b"Content-Type: text/plain\r\n"
@@ -5388,7 +5414,6 @@ async def start_health_server():
                 await writer.wait_closed()
             except Exception:
                 pass
-
     server = await asyncio.start_server(handle, host="0.0.0.0", port=port)
     logging.info("Health server listening on 0.0.0.0:%s", port)
     return server
