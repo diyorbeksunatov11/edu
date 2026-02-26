@@ -1845,6 +1845,7 @@ async def finalize_attendance_day(bot: Bot, gid: int, att_date: str, saved_by: i
     """Finalize attendance day: record day into attendance_days (once), increment absent counters once, and auto-kick if limit reached.
     If send_dm=True, DM absent users with their current counter (does not re-increment if already finalized)."""
     conn = db()
+    ensure_attendance_schema(conn)
     g = conn.execute("SELECT id, name, tg_chat_id, att_absent_limit FROM groups WHERE id=?", (gid,)).fetchone()
     conn.close()
     if not g:
